@@ -8,14 +8,20 @@ Node :: struct($T: typeid) {
 List :: struct($T: typeid) {
     front: ^Node(T),
     back: ^Node(T),
-    size: int,
+    len: uint,
 }
 
-// insert data into list at position n
-insert :: proc(list: ^List($T), n: int, data: T) -> (ok: bool = false) {
+List_Error :: enum {
+    Index_Out_Of_Bounds,
+}
+
+
+/*
+   Insert data into list at position n from the front.
+*/
+insert :: proc(list: ^List($T), data: T, n: uint = 0) -> (err: List_Error) {
     data := data
     context.user_ptr = &data
-    n := list.size + 1 + n if n < 0 else n
 
     make_node :: proc(data: $T, next: ^Node(T) = nil) -> (new_node: ^Node(T)) {
         new_node = new(Node(T))
@@ -24,60 +30,79 @@ insert :: proc(list: ^List($T), n: int, data: T) -> (ok: bool = false) {
         return
     }
 
-    node_insert :: proc(node: $N/^Node($T), n: int) -> N {
+    node_insert :: proc(node: $N/^Node($T), n: uint) -> N {
         if n == 0 {
             data_ptr := cast(^T)context.user_ptr
             data := data_ptr^
             return make_node(data, node)
         }
 
-        return node_insert(node.next, n - 1)
+        node.next = node_insert(node.next, n - 1)
+        return node
     }
 
     switch n {
-    case 0, 0..<list.size:
+    case 0, 0..<list.len:
         list.front = node_insert(list.front, n)
-    case list.size:
+    case list.len:
         list.back.next = make_node(data, nil)
         list.back = list.back.next
+    case:
+        return .Index_Out_Of_Bounds
     }
 
     list.front = list.back  if list.front == nil else list.front
     list.back  = list.front if list.back  == nil else list.back
 
-    list.size += 1
-    return true
+    list.len += 1
+    return
+}
+
+/*
+   Insert an element to the front of the list.
+*/
+push_front :: proc(list: ^List($T), data: T) -> (err: List_Error) {
+    return insert(list, data, 0)
+}
+
+/*
+   Insert an element to the back of the list.
+*/
+push_back :: proc(list: ^List($T), data: T) -> (err: List_Error) {
+    return insert(list, data, list.len)
 }
 
 
-// access the nth element in the list
-get_nth :: proc(list: $L/List($T), n: int) -> Maybe(T) {
-    n := list.size + 1 + n if n < 0 else n
-
-    node_get_nth :: proc(node: $N/^Node($T), n: int) -> Maybe(T) {
-        if node == nil {
-            return nil
-        }
-
-        if n == 0 {
-            return node.data
-        }
-
-        return node_get_nth(node.next, n - 1)
-    }
-
+/*
+   Access the nth element in the list.
+*/
+get_nth :: proc(list: $L/List($T), n: uint) -> (data: T, err: List_Error) {
     if list.front == nil {
-        return nil
+        err = .Index_Out_Of_Bounds
+        return
     }
 
     switch n {
-    case 0..<list.size-1:
-        return node_get_nth(list.front, n)
-    case list.size-1:
-        return list.back.data
+    case 0..<list.len-1:
+        node := get_nth_node(list.front, n)
+        data = node.data
+    case list.len-1:
+        data = list.back.data
     case:
-        return nil
+        err = .Index_Out_Of_Bounds
     }
+
+    return
+}
+
+
+@(private)
+get_nth_node :: proc(node: $N/^Node($T), n: uint) -> N {
+    if n == 0 {
+        return node
+    }
+
+    return get_nth_node(node.next, n - 1)
 }
 
 
@@ -89,46 +114,113 @@ test_empty :: proc(t: ^testing.T) {
 
     testing.expect_value(t, empty_list.front, nil)
     testing.expect_value(t, empty_list.back, nil)
-    testing.expect_value(t, empty_list.size, 0)
+    testing.expect_value(t, empty_list.len, 0)
 
-    testing.expect_value(t, get_nth(empty_list, 0), nil)
-    testing.expect_value(t, get_nth(empty_list, 1), nil)
+    {
+        data, err := get_nth(empty_list, 0)
+        assert(err == .Index_Out_Of_Bounds)
+    }
+    {
+        data, err := get_nth(empty_list, 1)
+        assert(err == .Index_Out_Of_Bounds)
+    }
 }
 
 @(test)
 test_push_front :: proc(t: ^testing.T) {
     list: List(int)
-    insert(&list, 0, 1)
+    push_front(&list, 1)
 
     assert(list.front != nil)
     assert(list.back != nil)
+    assert(list.len == 1)
 
     testing.expect_value(t, list.front.data, 1)
     testing.expect_value(t, list.back.data, 1)
-    testing.expect_value(t, get_nth(list, 0), 1)
+    {
+        data, err := get_nth(list, 0)
+        assert(err == nil)
+        testing.expect_value(t, data, 1)
+    }
 
-    insert(&list, 0, 2)
+    push_front(&list, 2)
     testing.expect_value(t, list.front.data, 2)
     testing.expect_value(t, list.back.data, 1)
-    testing.expect_value(t, get_nth(list, 0), 2)
-    testing.expect_value(t, get_nth(list, 1), 1)
+    {
+        data, err := get_nth(list, 0)
+        assert(err == nil)
+        testing.expect_value(t, data, 2)
+    }
+    {
+        data, err := get_nth(list, 1)
+        assert(err == nil)
+        testing.expect_value(t, data, 1)
+    }
 }
 
 @(test)
 test_push_back :: proc(t: ^testing.T) {
     list: List(int)
-    insert(&list, -1, 1)
+
+    // push 1
+    push_back(&list, 1)
 
     assert(list.front != nil)
     assert(list.back != nil)
 
     testing.expect_value(t, list.front.data, 1)
     testing.expect_value(t, list.back.data, 1)
-    testing.expect_value(t, get_nth(list, 0), 1)
 
-    insert(&list, -1, 2)
+    {
+        data, err := get_nth(list, 0)
+        assert(err == nil)
+        testing.expect_value(t, data, 1)
+    }
+
+    // push 2
+    push_back(&list, 2)
+
     testing.expect_value(t, list.front.data, 1)
     testing.expect_value(t, list.back.data, 2)
-    testing.expect_value(t, get_nth(list, 0), 1)
-    testing.expect_value(t, get_nth(list, 1), 2)
+
+    {
+        data, err := get_nth(list, 0)
+        assert(err == nil)
+        testing.expect_value(t, data, 1)
+    }
+    {
+        data, err := get_nth(list, 1)
+        assert(err == nil)
+        testing.expect_value(t, data, 2)
+    }
+}
+
+@(test)
+test_insert :: proc(t: ^testing.T) {
+    list: List(int)
+    push_front(&list, 1)
+    push_back(&list, 3)
+    insert(&list, 2, 1)
+
+    assert(list.front != nil)
+    assert(list.back != nil)
+
+    testing.expect_value(t, list.front.data, 1)
+    testing.expect_value(t, list.back.data, 3)
+
+    {
+        data, err := get_nth(list, 0)
+        assert(err == nil)
+        testing.expect_value(t, data, 1)
+    }
+    {
+        data, err := get_nth(list, 1)
+        assert(err == nil)
+        testing.expect_value(t, data, 2)
+    }
+    {
+        data, err := get_nth(list, 2)
+        assert(err == nil)
+        testing.expect_value(t, data, 3)
+    }
 }
