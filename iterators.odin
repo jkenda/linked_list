@@ -56,13 +56,13 @@ import "core:testing"
 @(test)
 test_to_string :: proc(t: ^testing.T) {
     list: List(int)
-    push_back(&list, 1)
-    push_back(&list, 2)
-    push_back(&list, 3)
+    append(&list, 1)
+    append(&list, 2)
+    append(&list, 3)
 
     {
         str := to_string(list)
-        defer delete(str)
+        defer delete_string(str)
         testing.expect_value(t, str, "[1, 2, 3]")
     }
 }
