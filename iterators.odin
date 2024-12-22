@@ -54,7 +54,7 @@ to_string :: proc(list: $L/List($T), allocator := context.allocator) -> string {
 import "core:testing"
 
 @(test)
-test_print :: proc(t: ^testing.T) {
+test_to_string :: proc(t: ^testing.T) {
     list: List(int)
     push_back(&list, 1)
     push_back(&list, 2)
