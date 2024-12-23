@@ -3,33 +3,54 @@ package linked_list
 import "core:fmt"
 import "core:strings"
 
-iterate_ref :: proc(list: $L/^List($T), p: $P/proc(data: T, next: $N/^Node(T))) {
-    iterate_node :: proc(node: N, p: P) {
-        if node == nil { return }
-
-        p(node.data, node.next)
-        iterate_node(node.next, p)
-    }
-
-    iterate_node(list.front, p)
-    return
-}
-
 iterate_val :: proc(list: $L/List($T), p: $P/proc(data: T, has_next: bool)) {
-    iterate_node :: proc(node: $N/^Node(T), p: P) {
+    iterate :: proc(node: $N/^Node(T), p: P) {
         if node == nil { return }
 
         p(node.data, node.next != nil)
-        iterate_node(node.next, p)
+        iterate(node.next, p)
     }
 
-    iterate_node(list.front, p)
-    return
+    iterate(list.front, p)
+}
+
+iterate_ref :: proc(list: $L/^List($T), p: $P/proc(data: ^T, has_next: bool)) {
+    iterate :: proc(node: $N/^Node(T), p: P) {
+        if node == nil { return }
+
+        p(&node.data, node.next != nil)
+        iterate(node.next, p)
+    }
+
+    iterate(list.front, p)
+}
+
+iterate_node :: proc(list: $L/^List($T), p: $P/proc(node: $N/^Node(T))) {
+    context.user_ptr = list
+
+    iterate :: proc(node: N, p: P) {
+        if node == nil { return }
+
+        next := node.next
+        p(node)
+
+        list := cast(L)context.user_ptr
+        if node == list.back {
+            for list.back.next != nil {
+                list.back = list.back.next
+            }
+        }
+
+        iterate(next, p)
+    }
+
+    iterate(list.front, p)
 }
 
 iterate :: proc{
-    iterate_ref,
     iterate_val,
+    iterate_ref,
+    iterate_node,
 }
 
 to_string :: proc(list: $L/List($T), allocator := context.allocator) -> string {
@@ -54,11 +75,32 @@ to_string :: proc(list: $L/List($T), allocator := context.allocator) -> string {
 import "core:testing"
 
 @(test)
+test_iterate_ref :: proc(t: ^testing.T) {
+    list := make([]int{ 1, 2, 3 })
+
+    iterate_ref(&list, proc(data: ^int, _: bool) {
+        data^ = 0
+    })
+
+    testing.expect_value(t, to_string(list), "[0, 0, 0]")
+}
+
+@(test)
+test_iterate_node :: proc(t: ^testing.T) {
+    list := make([]int{ 1, 2, 3 })
+
+    // insert zeros in between nodes
+    iterate_node(&list, proc(node: ^Node(int)) {
+        node.next = make_node(0, node.next)
+    })
+
+    testing.expect_value(t, to_string(list), "[1, 0, 2, 0, 3, 0]")
+    testing.expect_value(t, list.back.data, 0)
+}
+
+@(test)
 test_to_string :: proc(t: ^testing.T) {
-    list: List(int)
-    append(&list, 1)
-    append(&list, 2)
-    append(&list, 3)
+    list := make([]int{ 1, 2, 3 })
 
     {
         str := to_string(list)

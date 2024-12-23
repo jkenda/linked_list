@@ -1,7 +1,5 @@
 package linked_list
 
-import "base:runtime"
-
 Node :: struct($T: typeid) {
     data: T,
     next: ^Node(T)
@@ -18,6 +16,23 @@ Error :: enum {
 }
 
 
+make_from_slice_with_type :: proc($T: typeid, slice: $S/[]T) -> (list: List(T)) {
+    for el in slice {
+        append(&list, el)
+    }
+    return
+}
+
+make_from_slice :: proc(slice: $S/[]$T) -> List(T) {
+    return make_from_slice_with_type(T, slice)
+}
+
+make :: proc{
+    make_from_slice_with_type,
+    make_from_slice,
+}
+
+
 /*
    Remove all items from the list.
    O(n).
@@ -30,19 +45,23 @@ delete :: proc(list: $L/^List($T), allocator := context.allocator) {
 
 
 /*
+   Make a node with data and next.
+ */
+make_node :: proc(data: $T, next: ^Node(T) = nil, allocator := context.allocator) -> (new_node: ^Node(T)) {
+    new_node = new(Node(T), allocator)
+    new_node.data = data
+    new_node.next = next
+    return
+}
+
+
+/*
    Insert data into list at position n from the front.
    O(1) in the front and back, O(n) elsewhere.
 */
 insert :: proc(list: ^List($T), data: T, n: uint = 0, allocator := context.allocator) -> (err: Error) {
     data := data
     context.user_ptr = &data
-
-    make_node :: proc(data: $T, next: ^Node(T) = nil, allocator := context.allocator) -> (new_node: ^Node(T)) {
-        new_node = new(Node(T), allocator)
-        new_node.data = data
-        new_node.next = next
-        return
-    }
 
     node_insert :: proc(node: $N/^Node($T), n: uint, allocator := context.allocator) -> N {
         if n == 0 {
@@ -93,18 +112,22 @@ append :: proc(list: ^List($T), data: T, allocator := context.allocator) -> (err
    Remove the nth element from the list.
    O(1) at the front, O(n) elsewhere.
  */
-remove :: proc(list: $L/^List($T), n: uint, allocator := context.allocator) -> (err: Error) {
+remove :: proc(list: $L/^List($T), n: uint, allocator := context.allocator) -> (data: T, err: Error) {
     if list.len == 0 {
         err = .Index_Out_Of_Bounds
         return
     }
 
-    remove_node :: proc(node: $N/^Node($T), n: uint, allocator := context.allocator) -> N {
+    remove_node :: proc(node: $N/^Node($T), n: uint, allocator := context.allocator) -> (prev_node: N, next_data: T) {
         if n == 1 {
             next := node.next
+
+            prev_node = node
+            next_data = next.data
+
             node.next = node.next.next
             free(next, allocator)
-            return node
+            return
         }
 
         return remove_node(node.next, n - 1, allocator)
@@ -112,13 +135,17 @@ remove :: proc(list: $L/^List($T), n: uint, allocator := context.allocator) -> (
 
     switch n {
     case 0:
+        data = list.front.data
         next := list.front.next
         free(list.front, allocator)
         list.front = next
     case 1..<list.len-1:
-        remove_node(list.front, n, allocator)
+        _, next_data := remove_node(list.front, n, allocator)
+        data = next_data
     case list.len-1:
-         list.back = remove_node(list.front, n, allocator)
+        data = list.back.data
+        node, _ := remove_node(list.front, n, allocator)
+        list.back = node
     case:
         err = .Index_Out_Of_Bounds
     }
@@ -134,7 +161,7 @@ remove :: proc(list: $L/^List($T), n: uint, allocator := context.allocator) -> (
    Remove the first element from the list.
    O(1).
  */
-pop_front :: proc(list: $L/^List($T), allocator := context.allocator) -> (err: Error) {
+pop_front :: proc(list: $L/^List($T), allocator := context.allocator) -> (data: T, err: Error) {
     return remove(list, 0, allocator)
 }
 
@@ -142,7 +169,7 @@ pop_front :: proc(list: $L/^List($T), allocator := context.allocator) -> (err: E
    Remove the last element from the list.
    O(n).
  */
-pop_back :: proc(list: $L/^List($T), allocator := context.allocator) -> (err: Error) {
+pop_back :: proc(list: $L/^List($T), allocator := context.allocator) -> (data: T, err: Error) {
     return remove(list, list.len - 1, allocator)
 }
 
@@ -198,6 +225,18 @@ get_back :: proc(list: $L/List($T)) -> (data: T, err: Error) {
 import "core:testing"
 
 @(test)
+test_make_from_slice :: proc(t: ^testing.T) {
+    {
+        list := make_from_slice([]int{})
+        testing.expect_value(t, to_string(list), "[]")
+    }
+    {
+        list := make_from_slice([]int{ 1, 2, 3 })
+        testing.expect_value(t, to_string(list), "[1, 2, 3]")
+    }
+}
+
+@(test)
 test_empty :: proc(t: ^testing.T) {
     empty_list: List(int)
     defer delete(&empty_list)
@@ -207,11 +246,11 @@ test_empty :: proc(t: ^testing.T) {
     testing.expect_value(t, empty_list.len, 0)
 
     {
-        data, err := get_nth(empty_list, 0)
+        _, err := get_nth(empty_list, 0)
         assert(err == .Index_Out_Of_Bounds)
     }
     {
-        data, err := get_nth(empty_list, 1)
+        _, err := get_nth(empty_list, 1)
         assert(err == .Index_Out_Of_Bounds)
     }
 }
@@ -257,6 +296,7 @@ test_push_front :: proc(t: ^testing.T) {
 @(test)
 test_push_back :: proc(t: ^testing.T) {
     list: List(int)
+    defer delete(&list)
 
     // push 1
     append(&list, 1)
@@ -294,6 +334,8 @@ test_push_back :: proc(t: ^testing.T) {
 @(test)
 test_insert :: proc(t: ^testing.T) {
     list: List(int)
+    defer delete(&list)
+
     prepend(&list, 1)
     append(&list, 3)
     insert(&list, 2, 1)
@@ -323,30 +365,36 @@ test_insert :: proc(t: ^testing.T) {
 
 @(test)
 test_remove :: proc(t: ^testing.T) {
-    list: List(int)
-    append(&list, 1)
-    append(&list, 2)
-    append(&list, 3)
-    append(&list, 4)
-    append(&list, 5)
-    append(&list, 6)
-    append(&list, 7)
-    append(&list, 8)
-    append(&list, 9)
-    append(&list, 0)
+    list := make([]int{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 0 })
     testing.expect_value(t, to_string(list), "[1, 2, 3, 4, 5, 6, 7, 8, 9, 0]")
 
-    pop_back(&list)
-    testing.expect_value(t, to_string(list), "[1, 2, 3, 4, 5, 6, 7, 8, 9]")
+    {
+        data, err := pop_back(&list)
+        assert(err == nil)
+        testing.expect_value(t, data, 0)
+        testing.expect_value(t, to_string(list), "[1, 2, 3, 4, 5, 6, 7, 8, 9]")
+    }
 
-    pop_front(&list)
-    testing.expect_value(t, to_string(list), "[2, 3, 4, 5, 6, 7, 8, 9]")
+    {
+        data, err := pop_front(&list)
+        assert(err == nil)
+        testing.expect_value(t, data, 1)
+        testing.expect_value(t, to_string(list), "[2, 3, 4, 5, 6, 7, 8, 9]")
+    }
 
-    remove(&list, 5)
-    testing.expect_value(t, to_string(list), "[2, 3, 4, 5, 6, 8, 9]")
+    {
+        data, err := remove(&list, 5)
+        assert(err == nil)
+        testing.expect_value(t, data, 7)
+        testing.expect_value(t, to_string(list), "[2, 3, 4, 5, 6, 8, 9]")
+    }
 
-    remove(&list, 3)
-    testing.expect_value(t, to_string(list), "[2, 3, 4, 6, 8, 9]")
+    {
+        data, err := remove(&list, 3)
+        assert(err == nil)
+        testing.expect_value(t, data, 5)
+        testing.expect_value(t, to_string(list), "[2, 3, 4, 6, 8, 9]")
+    }
 
     {
         data, err := get_front(list)
@@ -358,4 +406,16 @@ test_remove :: proc(t: ^testing.T) {
         assert(err == nil)
         testing.expect_value(t, data, 9)
     }
+
+    pop_front(&list)
+    pop_front(&list)
+    pop_front(&list)
+    pop_front(&list)
+    pop_front(&list)
+    testing.expect_value(t, list.front, list.back)
+
+    pop_front(&list)
+    testing.expect_value(t, list.front, nil)
+    testing.expect_value(t, list.back, nil)
+    testing.expect_value(t, list.len, 0)
 }
