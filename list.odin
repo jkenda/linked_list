@@ -85,7 +85,7 @@ reverse :: proc(list: $L/^List($T)) {
    Insert data into list at position n from the front.
    O(1) in the front and back, O(n) elsewhere.
 */
-insert :: proc(list: ^List($T), data: T, n: uint = 0, allocator := context.allocator) -> (err: Error) {
+insert :: proc(list: ^List($T), idx: uint, data: T, allocator := context.allocator) -> (err: Error) {
     data := data
     context.user_ptr = &data
 
@@ -104,9 +104,9 @@ insert :: proc(list: ^List($T), data: T, n: uint = 0, allocator := context.alloc
         return node
     }
 
-    switch n {
+    switch idx {
     case 0, 0..<list.len:
-        list.front = node_insert(list.front, nil, n, allocator)
+        list.front = node_insert(list.front, nil, idx, allocator)
     case list.len:
         list.back.next = make_node(data, nil, allocator)
         list.back = list.back.next
@@ -126,7 +126,7 @@ insert :: proc(list: ^List($T), data: T, n: uint = 0, allocator := context.alloc
    O(1).
 */
 prepend :: proc(list: ^List($T), data: T, allocator := context.allocator) -> (err: Error) {
-    return insert(list, data, 0, allocator)
+    return insert(list, 0, data, allocator)
 }
 
 /*
@@ -134,7 +134,7 @@ prepend :: proc(list: ^List($T), data: T, allocator := context.allocator) -> (er
    O(1).
 */
 append :: proc(list: ^List($T), data: T, allocator := context.allocator) -> (err: Error) {
-    return insert(list, data, list.len, allocator)
+    return insert(list, list.len, data, allocator)
 }
 
 
@@ -403,7 +403,7 @@ test_insert :: proc(t: ^testing.T) {
 
     prepend(&list, 1)
     append(&list, 3)
-    insert(&list, 2, 1)
+    insert(&list, 1, 2)
 
     assert(list.front != nil)
     assert(list.back != nil)
@@ -493,10 +493,10 @@ import vmem "core:mem/virtual"
 @(test)
 test_perf :: proc(t: ^testing.T) {
     N :: 500_000
-    T :: type_of(t.seed)
+    T :: i64
 
-    @(thread_local) test: ^testing.T
-    test = t
+    @(thread_local) seed: T
+    seed = T(t.seed)
 
     options: time.Benchmark_Options
     options.setup = proc(options: ^time.Benchmark_Options, allocator := context.allocator) -> (err: time.Benchmark_Error) {
@@ -510,7 +510,7 @@ test_perf :: proc(t: ^testing.T) {
             reserve(&arr, N)
 
             for n in 1..=N {
-                append_elem(&arr, test.seed)
+                append_elem(&arr, seed)
                 options.processed += size_of(T)
             }
 
@@ -527,7 +527,7 @@ test_perf :: proc(t: ^testing.T) {
             reserve(&arr, N)
 
             for n in 1..=N {
-                inject_at(&arr, 0, test.seed)
+                inject_at(&arr, 0, seed)
                 options.processed += size_of(T)
             }
 
@@ -544,7 +544,7 @@ test_perf :: proc(t: ^testing.T) {
 
             for n in 1..=N/1000 {
                 unordered_remove(&arr, N/2)
-                inject_at(&arr, N/2, test.seed)
+                inject_at(&arr, N/2, seed)
                 options.processed += size_of(T)
             }
 
@@ -566,7 +566,7 @@ test_perf :: proc(t: ^testing.T) {
             list: List(T)
 
             for n in 1..=N {
-                append(&list, test.seed)
+                append(&list, seed)
                 options.processed += size_of(T)
             }
 
@@ -582,7 +582,7 @@ test_perf :: proc(t: ^testing.T) {
             list: List(T)
 
             for n in 1..=N {
-                prepend(&list, test.seed)
+                prepend(&list, seed)
                 options.processed += size_of(T)
             }
 
@@ -598,12 +598,12 @@ test_perf :: proc(t: ^testing.T) {
             list: List(T)
 
             for n in 1..=N {
-                append(&list, test.seed)
+                append(&list, seed)
             }
 
             for n in 1..=N/1000 {
                 remove(&list, N)
-                insert(&list, test.seed, N)
+                insert(&list, N, seed)
                 options.processed += size_of(T)
             }
 
@@ -619,7 +619,7 @@ test_perf :: proc(t: ^testing.T) {
             list: List(T)
 
             for n in 1..=N {
-                append(&list, test.seed)
+                append(&list, seed)
             }
 
             // get node before the middle
@@ -633,7 +633,7 @@ test_perf :: proc(t: ^testing.T) {
                 prev_node.next = prev_node.next.next
                 free(node)
                 // insert it again
-                prev_node.next = make_node(test.seed, prev_node.next)
+                prev_node.next = make_node(seed, prev_node.next)
 
                 options.processed += size_of(T)
             }
